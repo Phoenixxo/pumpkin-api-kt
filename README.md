@@ -44,3 +44,9 @@ cd wit
 git pull origin master
 cd ..
 ```
+
+----
+
+### Attributions
+
+This template was primarily derived from [@jmrtsh](https://github.com/jmrtsh)'s work on [Kotlin/sample-wasi-http-kotlin](https://github.com/Kotlin/sample-wasi-http-kotlin), which is licensed under [Apache-2.0](https://github.com/Kotlin/sample-wasi-http-kotlin/blob/main/LICENSE)
