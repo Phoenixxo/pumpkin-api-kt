@@ -34,6 +34,32 @@ class PluginRootFunctionsExportsImpl {
         override fun handleTask(handlerId: UInt, server: Server.Server) {
             TODO("Not yet implemented")
         }
+
+        override fun handleIpcMessage(sender: String, message: List<UByte>): Result<List<UByte>> {
+            return Result.failure(
+                pumpkin.runtime.ComponentException("This plugin cannot recieve messages.")
+            );
+        }
+
+        override fun handleAiGoalCanStart(goalId: UInt, server: Server.Server, entity: World.Entity): Boolean {
+            TODO("Not yet implemented");
+        }
+
+        override fun handleAiGoalShouldContinue(goalId: UInt, server: Server.Server, entity: World.Entity): Boolean {
+            TODO("Not yet implemented");
+        }
+
+        override fun handleAiGoalStart(goalId: UInt, server: Server.Server, entity: World.Entity): Unit {
+            TODO("Not yet implemented");
+        }
+
+        override fun handleAiGoalTick(goalId: UInt, server: Server.Server, entity: World.Entity): Unit {
+            TODO("Not yet implemented");
+        }
+
+        override fun handleAiGoalStop(goalId: UInt, server: Server.Server, entity: World.Entity): Unit {
+            TODO("Not yet implemented");
+        }
     }
 }
 
