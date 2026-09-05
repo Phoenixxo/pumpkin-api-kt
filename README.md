@@ -13,24 +13,24 @@ Kotlin/Wasm + components it's still in it's early stages, and not as straightfor
 - Rust
   - This is required as a key component (wit-bindgen) is written and Rust must be built from a particular Kotlin-enabled fork.
   - You only need a default Rust install for your host platform. NOT for any WebAssembly targets
-- Make
-  - To run the convenience `Makefile`. You may opt to do without and perform the necessary steps manually.
-- `wasm-tools`
-  - To bundle the Wasm Kotlin produces into a component.
 
 ## Initial setup
 
-To being working on your project, you'll want to adjust the project name in `settings.gradle.kts` and in the Makefile. Whatever your name you'll project, is what the generated Wasm will be named.
+Initialize the WIT submodule after cloning:
 
-After that, you'll want to run `make` for the first time. This will setup the toolchain, generate the `pumpkin` package bindings into `src/wasmWasiMain/kotlin/bindings`, and build your plugin, leaving it in `build/<project-name>.wasm`, ready to be installed into Pumpkin.
+```sh
+git submodule update --init --recursive
+```
 
-Then you can tweaking the plugin src in `src/wasmWasiMain/kotlin/plugin/Plugin.kt`.
+Then adjust the project name in `settings.gradle.kts`. The generated component is named after that project.
+
+Run `./gradlew build` to install the pinned build tools, generate the `pumpkin` package bindings, compile the Kotlin/Wasm module, and produce a validated component at `build/<project-name>.wasm`, ready to be installed into Pumpkin. Generated bindings live under `build/generated/`.
+
+Then you can tweak the plugin source in `src/wasmWasiMain/kotlin/plugin/Plugin.kt`.
 
 ## Rebuilding
 
-Rebuilding the plugin is as simple as running `make` again. You can also be more specific by running `make componentify` to avoid the overhead of checking the `wit-bindgen` installation and regenerating the bindings.
-
-If you need a debug build instead of a release build, run `make componentify-dev` (`componentify` is an alias of `componentify-prod`). Note that this will make loading the plugin take SIGNFICANTLY longer (making optimized builds actually better for the development loop).
+Rebuild with `./gradlew build`. Gradle skips tool installation, binding generation, and component assembly when their declared inputs are unchanged. Use `./gradlew clean` to remove generated build output; it intentionally retains the installed tool cache under `tools/`.
 
 ## Updating the WIT
 
