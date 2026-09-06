@@ -7,3 +7,6 @@ pluginManagement {
         }
     }
 }
+
+include("api")
+include("gradle-plugin")

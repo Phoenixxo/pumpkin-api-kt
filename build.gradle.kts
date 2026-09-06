@@ -1,11 +1,15 @@
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
 import org.gradle.process.CommandLineArgumentProvider
+import org.gradle.api.tasks.Sync
+import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenExec
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
 }
+
+evaluationDependsOn(":api")
 
 repositories {
     mavenCentral()
@@ -19,46 +23,17 @@ kotlin {
     }
 }
 
-val cargoHome = providers.environmentVariable("CARGO_HOME")
-    .orElse(providers.systemProperty("user.home").map { "$it/.cargo" })
 val executableSuffix = if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) ".exe" else ""
-val cargoExecutable = cargoHome.map { "$it/bin/cargo$executableSuffix" }
-
-val witDirectory = layout.projectDirectory.dir("wit/v0.1")
-val reactorAdapter = layout.projectDirectory.file("wasi_snapshot_preview1.reactor.wasm")
-
-val witBindgenRevision = "700f2db5e1d01f7bee8d756750c6f631171f520e"
-val witBindgenDirectory = layout.projectDirectory.dir("tools/wit-bindgen/$witBindgenRevision")
-val witBindgen = witBindgenDirectory.file("bin/wit-bindgen")
 
 val wasmToolsVersion = "1.258.0"
 val wasmToolsDirectory = layout.projectDirectory.dir("tools/wasm-tools/$wasmToolsVersion")
 val wasmTools = wasmToolsDirectory.file("bin/wasm-tools$executableSuffix")
 
-val generatedBindings = layout.buildDirectory.dir("generated/wit/wasmWasiMain/kotlin")
 val projectWasmName = rootProject.name
 val embeddedReleaseComponent = layout.buildDirectory.file(
     "intermediates/pumpkin-components/release/$projectWasmName-embedded.wasm"
 )
 val releaseComponent = layout.buildDirectory.file("$projectWasmName.wasm")
-
-val installWitBindgen by tasks.registering(Exec::class) {
-    group = "build setup"
-    description = "Installs Pumpkin's pinned Kotlin binding generator."
-
-    inputs.property("revision", witBindgenRevision)
-    outputs.dir(witBindgenDirectory)
-
-    commandLine(
-        cargoExecutable.get(),
-        "install",
-        "wit-bindgen-cli",
-        "--git", "https://github.com/Kotlin/wit-bindgen",
-        "--rev", witBindgenRevision,
-        "--locked",
-        "--root", witBindgenDirectory.asFile.absolutePath,
-    )
-}
 
 val installWasmTools by tasks.registering(Exec::class) {
     group = "build setup"
@@ -68,7 +43,10 @@ val installWasmTools by tasks.registering(Exec::class) {
     outputs.dir(wasmToolsDirectory)
 
     commandLine(
-        cargoExecutable.get(),
+        providers.environmentVariable("CARGO_HOME")
+            .orElse(providers.systemProperty("user.home").map { "$it/.cargo" })
+            .map { "$it/bin/cargo$executableSuffix" }
+            .get(),
         "install",
         "wasm-tools",
         "--version", wasmToolsVersion,
@@ -77,40 +55,21 @@ val installWasmTools by tasks.registering(Exec::class) {
     )
 }
 
-val generateWitBindings by tasks.registering(Exec::class) {
-    group = "build"
-    description = "Generates Kotlin bindings from Pumpkin's WIT definitions."
+val apiSourcesJar = project(":api").tasks.named<Jar>("wasmWasiSourcesJar")
+val unpackApiSources by tasks.registering(Sync::class) {
+    group = "build setup"
+    description = "Unpacks the published Pumpkin API source snapshot for component compilation."
 
-    dependsOn(installWitBindgen)
-    inputs.dir(witDirectory)
-    inputs.file(witBindgen)
-    inputs.property("kotlinPackage", "pumpkin")
-    inputs.property("kotlinImports", "plugin.*")
-    outputs.dir(generatedBindings)
-
-    doFirst {
-        val outputDirectory = generatedBindings.get().asFile
-        check(outputDirectory.deleteRecursively() || !outputDirectory.exists()) {
-            "Could not remove stale bindings from $outputDirectory"
-        }
-        check(outputDirectory.mkdirs() || outputDirectory.isDirectory) {
-            "Could not create bindings directory $outputDirectory"
-        }
-    }
-
-    commandLine(
-        witBindgen.asFile.absolutePath,
-        "kotlin",
-        "--kotlin-imports", "plugin.*",
-        "--kotlin-package-name", "pumpkin",
-        witDirectory.asFile.absolutePath,
-        "--out-dir", generatedBindings.get().asFile.absolutePath,
-    )
+    dependsOn(apiSourcesJar)
+    from(apiSourcesJar.flatMap { it.archiveFile }.map { zipTree(it.asFile) })
+    into(layout.buildDirectory.dir("generated/pumpkin-api"))
 }
+val witDirectory = unpackApiSources.map { it.destinationDir.resolve("wit/v0.1") }
+val reactorAdapter = unpackApiSources.map { it.destinationDir.resolve("wasi/wasi_snapshot_preview1.reactor.wasm") }
 
 kotlin {
     sourceSets.named("wasmWasiMain") {
-        kotlin.srcDir(generateWitBindings)
+        kotlin.srcDir(unpackApiSources)
     }
 }
 
@@ -135,7 +94,7 @@ val embedComponentWitRelease by tasks.registering(Exec::class) {
             override fun asArguments() = listOf(
                 "component",
                 "embed",
-                witDirectory.asFile.absolutePath,
+                witDirectory.get().absolutePath,
                 releaseCoreWasm.get().asFile.absolutePath,
                 "-o", embeddedReleaseComponent.get().asFile.absolutePath,
             )
@@ -165,7 +124,7 @@ val assemblePluginRelease by tasks.registering(Exec::class) {
         "component",
         "new",
         embeddedReleaseComponent.get().asFile.absolutePath,
-        "--adapt", "wasi_snapshot_preview1=${reactorAdapter.asFile.absolutePath}",
+        "--adapt", "wasi_snapshot_preview1=${reactorAdapter.get().absolutePath}",
         "-o", releaseComponent.get().asFile.absolutePath,
     )
 }

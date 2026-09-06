@@ -1,20 +1,22 @@
-# Pumpkin Plugin Template for Kotlin
+# Pumpkin Plugin API for Kotlin
 
-This repository provides a template to get started making [Pumpkin](https://github.com/Pumpkin-MC/Pumpkin) plugins using WebAssembly (Wasm) components.
+This repository builds the Kotlin bindings for [Pumpkin](https://github.com/Pumpkin-MC/Pumpkin) plugins using WebAssembly (Wasm) components.
 
-Unlike many of the other available language bindings, this repo is a template, not a package. You should clone this repository as a starting point.
+The `api` Gradle module is a publishable Kotlin/WASI library and generated-source snapshot. It generates the WIT bindings only while API maintainers build or publish the library; the consumer Gradle plugin will unpack that snapshot before compiling a plugin, so plugin authors do not install or run `wit-bindgen`.
 
-## Requirements
+The root component template remains available while the consumer Gradle plugin is being moved into `gradle-plugin`.
+
+## API maintainer requirements
 
 Kotlin/Wasm + components it's still in it's early stages, and not as straightforward as could be. You will need to have several things installed for everything to work.
 
 - JDK 17 or later
   - To run Gradle 9.4
 - Rust
-  - This is required as a key component (wit-bindgen) is written and Rust must be built from a particular Kotlin-enabled fork.
+  - This is required only to build or publish the API, because `wit-bindgen` is built from a particular Kotlin-enabled fork.
   - You only need a default Rust install for your host platform. NOT for any WebAssembly targets
 
-## Initial setup
+## Building the API
 
 Initialize the WIT submodule after cloning:
 
@@ -22,15 +24,28 @@ Initialize the WIT submodule after cloning:
 git submodule update --init --recursive
 ```
 
-Then adjust the project name in `settings.gradle.kts`. The generated component is named after that project.
+Publish a local development artifact with:
 
-Run `./gradlew build` to install the pinned build tools, generate the `pumpkin` package bindings, compile the Kotlin/Wasm module, and produce a validated component at `build/<project-name>.wasm`, ready to be installed into Pumpkin. Generated bindings live under `build/generated/`.
+```sh
+./gradlew :api:publishToMavenLocal
+```
 
-Then you can tweak the plugin source in `src/wasmWasiMain/kotlin/plugin/Plugin.kt`.
+This generates the `pumpkin` package bindings under `api/build/generated/`, compiles them with the package-owned WIT export bridge, and publishes the KLIB plus a generated-source archive. The source archive includes the pinned WIT snapshot and Preview 1 reactor adapter needed to assemble a component.
 
-## Rebuilding
+```kotlin
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
 
-Rebuild with `./gradlew build`. Gradle skips tool installation, binding generation, and component assembly when their declared inputs are unchanged. Use `./gradlew clean` to remove generated build output; it intentionally retains the installed tool cache under `tools/`.
+// The consumer Gradle plugin resolves the matching generated-source archive.
+```
+
+The API artifact exposes `PumpkinPlugin` and `registerPlugin(...)`; plugin authors should implement and register that class rather than defining the generator-specific `PluginRootFunctionsExportsImpl` or `MetadataImpl` types.
+
+## Root template build
+
+The original root template still builds a complete component with `./gradlew build`. Gradle skips tool installation, binding generation, and component assembly when their declared inputs are unchanged. Use `./gradlew clean` to remove generated build output; it intentionally retains the installed tool cache under `tools/`.
 
 ## Updating the WIT
 
