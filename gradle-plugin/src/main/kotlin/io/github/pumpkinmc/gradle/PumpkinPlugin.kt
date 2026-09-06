@@ -16,12 +16,14 @@ import org.gradle.kotlin.dsl.register
 import org.gradle.process.CommandLineArgumentProvider
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenExec
+import java.net.URI
 
 abstract class PumpkinExtension @Inject constructor(objects: ObjectFactory) {
     val apiGroup: Property<String> = objects.property(String::class.java).convention("io.github.pumpkin-mc")
     val apiArtifact: Property<String> = objects.property(String::class.java).convention("pumpkin-api-kt")
-    val apiVersion: Property<String> = objects.property(String::class.java).convention("0.1.0-dev") // Replace
+    val apiVersion: Property<String> = objects.property(String::class.java).convention("0.1.0-dev")
     val wasmToolsVersion: Property<String> = objects.property(String::class.java).convention("1.258.0")
+    val pluginClass: Property<String> = objects.property(String::class.java)
 }
 
 class PumpkinPlugin : Plugin<Project> {
@@ -57,13 +59,43 @@ class PumpkinPlugin : Plugin<Project> {
             group = "build setup"
             description = "Unpacks the published Pumpkin API source snapshot for component compilation."
             from(project.provider { project.zipTree(apiSources.singleFile) })
+            exclude("**/plugin/PluginFactory.kt")
             into(project.layout.buildDirectory.dir("generated/pumpkin-api"))
+        }
+
+        val pluginBootstrapDirectory = project.layout.buildDirectory.dir("generated/pumpkin-plugin-bootstrap")
+        val pluginFactorySource = pluginBootstrapDirectory.map { it.file("plugin/PluginFactory.kt") }
+        val generatePluginBootstrap = project.tasks.register("generatePumpkinPluginBootstrap") {
+            group = "build setup"
+            description = "Generates the bridge from Pumpkin's WIT exports to the plugin implementation."
+            inputs.property("pluginClass", extension.pluginClass)
+            outputs.file(pluginFactorySource)
+
+            doLast {
+                val pluginClass = checkNotNull(extension.pluginClass.orNull) {
+                    "Set pumpkin.pluginClass to your no-argument PumpkinPlugin implementation."
+                }
+                val output = pluginFactorySource.get().asFile
+                output.parentFile.mkdirs()
+                output.writeText(
+                    """
+                    package plugin
+
+                    internal fun createPlugin(): PumpkinPlugin = $pluginClass()
+                    """.trimIndent() + "\n",
+                )
+            }
         }
 
         project.extensions.getByType(KotlinMultiplatformExtension::class.java)
             .sourceSets.named("wasmWasiMain") {
                 kotlin.srcDir(unpackApiSources)
+                kotlin.srcDir(pluginBootstrapDirectory)
             }
+
+        project.tasks.named("compileKotlinWasmWasi") {
+            dependsOn(generatePluginBootstrap)
+        }
 
         val unpackedApiDirectory = unpackApiSources.map { it.destinationDir }
         val witDirectory = unpackedApiDirectory.map { it.resolve("wit/v0.1") }
@@ -73,23 +105,66 @@ class PumpkinPlugin : Plugin<Project> {
             "tools/wasm-tools/${extension.wasmToolsVersion.get()}",
         )
         val wasmTools = wasmToolsDirectory.map { it.file("bin/wasm-tools$executableSuffix") }
+        val wasmToolsTarget = when {
+            System.getProperty("os.name").startsWith("Mac", ignoreCase = true) &&
+                System.getProperty("os.arch") in setOf("aarch64", "arm64") -> "aarch64-macos"
+            System.getProperty("os.name").startsWith("Mac", ignoreCase = true) -> "x86_64-macos"
+            System.getProperty("os.name").startsWith("Windows", ignoreCase = true) &&
+                System.getProperty("os.arch") in setOf("aarch64", "arm64") -> "aarch64-windows"
+            System.getProperty("os.name").startsWith("Windows", ignoreCase = true) -> "x86_64-windows"
+            System.getProperty("os.arch") in setOf("aarch64", "arm64") -> "aarch64-linux"
+            System.getProperty("os.arch") in setOf("x86_64", "amd64") -> "x86_64-linux"
+            else -> error("Unsupported wasm-tools host architecture: ${System.getProperty("os.arch")}")
+        }
+        val wasmToolsArchiveExtension = if (wasmToolsTarget.endsWith("windows")) "zip" else "tar.gz"
+        val wasmToolsUrl = "https://github.com/bytecodealliance/wasm-tools/releases/download/v${extension.wasmToolsVersion.get()}/" +
+            "wasm-tools-${extension.wasmToolsVersion.get()}-$wasmToolsTarget.$wasmToolsArchiveExtension"
 
-        val installWasmTools = project.tasks.register("installWasmTools", org.gradle.api.tasks.Exec::class.java) {
+        val installWasmTools = project.tasks.register("installWasmTools") {
             group = "build setup"
-            description = "Installs the pinned wasm-tools executable."
+            description = "Downloads the pinned wasm-tools release executable."
             inputs.property("version", extension.wasmToolsVersion)
-            outputs.dir(wasmToolsDirectory)
+            inputs.property("target", wasmToolsTarget)
+            inputs.property("url", wasmToolsUrl)
+            outputs.file(wasmTools)
 
-            val cargoHome = project.providers.environmentVariable("CARGO_HOME")
-                .orElse(project.providers.systemProperty("user.home").map { "$it/.cargo" })
-            commandLine(
-                cargoHome.map { "$it/bin/cargo$executableSuffix" }.get(),
-                "install",
-                "wasm-tools",
-                "--version", extension.wasmToolsVersion.get(),
-                "--locked",
-                "--root", wasmToolsDirectory.get().asFile.absolutePath,
-            )
+            doLast {
+                val installationDirectory = wasmToolsDirectory.get().asFile
+                val archive = temporaryDir.resolve("wasm-tools.$wasmToolsArchiveExtension")
+                val installedExecutable = wasmTools.get().asFile
+                installationDirectory.deleteRecursively()
+                installationDirectory.mkdirs()
+                installedExecutable.parentFile.mkdirs()
+
+                URI(wasmToolsUrl).toURL().openStream().use { input ->
+                    archive.outputStream().use { output -> input.copyTo(output) }
+                }
+                fun runCommand(vararg command: String) {
+                    check(ProcessBuilder(*command).inheritIO().start().waitFor() == 0) {
+                        "wasm-tools archive extraction failed"
+                    }
+                }
+
+                if (wasmToolsTarget.endsWith("windows")) {
+                    runCommand(
+                        "powershell", "-NoProfile", "-Command",
+                        "Expand-Archive -Force '$archive' '$installationDirectory'; " +
+                            "Get-ChildItem -Path '$installationDirectory' -Recurse -Filter wasm-tools.exe | " +
+                            "Select-Object -First 1 | Copy-Item -Destination '$installedExecutable'",
+                    )
+                } else {
+                    runCommand("tar", "-xzf", archive.absolutePath, "-C", installationDirectory.absolutePath, "--strip-components=1")
+                }
+
+                if (!installedExecutable.isFile) {
+                    val downloadedExecutable = installationDirectory.walkTopDown().firstOrNull {
+                        it.isFile && it.name == "wasm-tools$executableSuffix"
+                    }
+                    checkNotNull(downloadedExecutable) { "wasm-tools archive did not contain wasm-tools$executableSuffix" }
+                    downloadedExecutable.copyTo(installedExecutable, overwrite = true)
+                }
+                installedExecutable.setExecutable(true)
+            }
         }
 
         val projectWasmName = project.name

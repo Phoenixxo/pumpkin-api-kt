@@ -26,6 +26,13 @@ abstract class PumpkinPlugin {
         args: Command.ConsumedArgs,
     ): Result<Int> = unsupportedCallback("handleCommand")
 
+    open fun handleCommandSuggestion(
+        handlerId: UInt,
+        sender: Command.CommandSender,
+        server: Server.Server,
+        request: Command.SuggestionRequest,
+    ): Command.CommandSuggestions = unsupportedCallback("handleCommandSuggestion")
+
     open fun handleEvent(
         eventId: UInt,
         server: Server.Server,
@@ -52,6 +59,12 @@ abstract class PumpkinPlugin {
 
     open fun handleAiGoalStop(goalId: UInt, server: Server.Server, entity: World.Entity) =
         unsupportedCallback<Unit>("handleAiGoalStop")
+
+    open fun handleGeneratePhase(
+        generatorId: UInt,
+        phase: World.GenerationPhase,
+        chunk: World.ChunkBuffer,
+    ) = unsupportedCallback<Unit>("handleGeneratePhase")
 }
 
 typealias PluginMetadata = Metadata.PluginMetadata
@@ -64,8 +77,8 @@ fun registerPlugin(plugin: PumpkinPlugin) {
     registeredPlugin = plugin
 }
 
-private fun requirePlugin(): PumpkinPlugin = checkNotNull(registeredPlugin) {
-    "No Pumpkin plugin has been registered. Call registerPlugin(...) during initialization."
+private fun requirePlugin(): PumpkinPlugin = registeredPlugin ?: createPlugin().also {
+    registeredPlugin = it
 }
 
 private fun <T> unsupportedCallback(name: String): T =
@@ -93,6 +106,13 @@ internal class PluginRootFunctionsExportsImpl {
         override fun handleEvent(eventId: UInt, server: Server.Server, event: Event.Event) =
             requirePlugin().handleEvent(eventId, server, event)
 
+        override fun handleCommandSuggestion(
+            handlerId: UInt,
+            sender: Command.CommandSender,
+            server: Server.Server,
+            request: Command.SuggestionRequest,
+        ) = requirePlugin().handleCommandSuggestion(handlerId, sender, server, request)
+
         override fun handleTask(handlerId: UInt, server: Server.Server) =
             requirePlugin().handleTask(handlerId, server)
 
@@ -113,6 +133,12 @@ internal class PluginRootFunctionsExportsImpl {
 
         override fun handleAiGoalStop(goalId: UInt, server: Server.Server, entity: World.Entity) =
             requirePlugin().handleAiGoalStop(goalId, server, entity)
+
+        override fun handleGeneratePhase(
+            generatorId: UInt,
+            phase: World.GenerationPhase,
+            chunk: World.ChunkBuffer,
+        ) = requirePlugin().handleGeneratePhase(generatorId, phase, chunk)
     }
 }
 
