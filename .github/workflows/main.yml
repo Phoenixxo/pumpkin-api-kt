@@ -29,6 +29,15 @@ jobs:
           distribution: liberica
           java-version: "25"
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Cache Tools
+        uses: actions/cache@v6
+        with:
+          path: tools
+          key: ${{ runner.os }}-${{ runner.arch }}-tools
+
       - name: Build example plugin to test
         run: |
           ./gradlew build --no-daemon
