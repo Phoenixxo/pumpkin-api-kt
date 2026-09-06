@@ -2,6 +2,7 @@ import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
 import org.gradle.process.CommandLineArgumentProvider
 import org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenExec
+import java.net.URI
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -19,9 +20,9 @@ kotlin {
     }
 }
 
+val executableSuffix = if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) ".exe" else ""
 val cargoHome = providers.environmentVariable("CARGO_HOME")
     .orElse(providers.systemProperty("user.home").map { "$it/.cargo" })
-val executableSuffix = if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) ".exe" else ""
 val cargoExecutable = cargoHome.map { "$it/bin/cargo$executableSuffix" }
 
 val witDirectory = layout.projectDirectory.dir("wit/v0.1")
@@ -34,6 +35,20 @@ val witBindgen = witBindgenDirectory.file("bin/wit-bindgen")
 val wasmToolsVersion = "1.258.0"
 val wasmToolsDirectory = layout.projectDirectory.dir("tools/wasm-tools/$wasmToolsVersion")
 val wasmTools = wasmToolsDirectory.file("bin/wasm-tools$executableSuffix")
+val wasmToolsTarget = when {
+    System.getProperty("os.name").startsWith("Mac", ignoreCase = true) &&
+        System.getProperty("os.arch") in setOf("aarch64", "arm64") -> "aarch64-macos"
+    System.getProperty("os.name").startsWith("Mac", ignoreCase = true) -> "x86_64-macos"
+    System.getProperty("os.name").startsWith("Windows", ignoreCase = true) &&
+        System.getProperty("os.arch") in setOf("aarch64", "arm64") -> "aarch64-windows"
+    System.getProperty("os.name").startsWith("Windows", ignoreCase = true) -> "x86_64-windows"
+    System.getProperty("os.arch") in setOf("aarch64", "arm64") -> "aarch64-linux"
+    System.getProperty("os.arch") in setOf("x86_64", "amd64") -> "x86_64-linux"
+    else -> error("Unsupported wasm-tools host architecture: ${System.getProperty("os.arch")}")
+}
+val wasmToolsArchiveExtension = if (wasmToolsTarget.endsWith("windows")) "zip" else "tar.gz"
+val wasmToolsUrl = "https://github.com/bytecodealliance/wasm-tools/releases/download/v$wasmToolsVersion/" +
+    "wasm-tools-$wasmToolsVersion-$wasmToolsTarget.$wasmToolsArchiveExtension"
 
 val generatedBindings = layout.buildDirectory.dir("generated/wit/wasmWasiMain/kotlin")
 val projectWasmName = rootProject.name
@@ -60,21 +75,54 @@ val installWitBindgen by tasks.registering(Exec::class) {
     )
 }
 
-val installWasmTools by tasks.registering(Exec::class) {
+val installWasmTools by tasks.registering {
     group = "build setup"
-    description = "Installs the pinned wasm-tools executable."
+    description = "Downloads the pinned wasm-tools release executable."
 
     inputs.property("version", wasmToolsVersion)
-    outputs.dir(wasmToolsDirectory)
+    inputs.property("target", wasmToolsTarget)
+    inputs.property("url", wasmToolsUrl)
+    outputs.file(wasmTools)
 
-    commandLine(
-        cargoExecutable.get(),
-        "install",
-        "wasm-tools",
-        "--version", wasmToolsVersion,
-        "--locked",
-        "--root", wasmToolsDirectory.asFile.absolutePath,
-    )
+    doLast {
+        val installationDirectory = wasmToolsDirectory.asFile
+        val archive = temporaryDir.resolve("wasm-tools.$wasmToolsArchiveExtension")
+        val installedExecutable = wasmTools.asFile
+        installationDirectory.deleteRecursively()
+        installationDirectory.mkdirs()
+        installedExecutable.parentFile.mkdirs()
+
+        URI(wasmToolsUrl).toURL().openStream().use { input ->
+            archive.outputStream().use { output -> input.copyTo(output) }
+        }
+        fun runCommand(vararg command: String) {
+            check(ProcessBuilder(*command).inheritIO().start().waitFor() == 0) {
+                "wasm-tools archive extraction failed"
+            }
+        }
+
+        if (wasmToolsTarget.endsWith("windows")) {
+            runCommand(
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                "Expand-Archive -Force '$archive' '$installationDirectory'; " +
+                    "Get-ChildItem -Path '$installationDirectory' -Recurse -Filter wasm-tools.exe | " +
+                    "Select-Object -First 1 | Copy-Item -Destination '${wasmTools.asFile}'",
+            )
+        } else {
+            runCommand("tar", "-xzf", archive.absolutePath, "-C", installationDirectory.absolutePath, "--strip-components=1")
+        }
+
+        if (!installedExecutable.isFile) {
+            val downloadedExecutable = installationDirectory.walkTopDown().firstOrNull {
+                it.isFile && it.name == "wasm-tools$executableSuffix"
+            }
+            checkNotNull(downloadedExecutable) { "wasm-tools archive did not contain wasm-tools$executableSuffix" }
+            downloadedExecutable.copyTo(installedExecutable, overwrite = true)
+        }
+        installedExecutable.setExecutable(true)
+    }
 }
 
 val generateWitBindings by tasks.registering(Exec::class) {
