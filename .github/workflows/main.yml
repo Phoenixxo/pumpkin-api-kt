@@ -1,6 +1,7 @@
 name: Main
 on:
   push:
+    branches: [master]
   pull_request:
   workflow_dispatch:
   workflow_run:
@@ -10,13 +11,20 @@ on:
       - "Update WIT"
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   main:
-    name: Build, test, and release
+    name: Build API and verify consumer
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    env:
+      PUMPKIN_CI_REPOSITORY: ${{ runner.temp }}/pumpkin-maven
+      PUMPKIN_CI_CONSUMER: ${{ runner.temp }}/pumpkin-consumer
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -26,18 +34,44 @@ jobs:
       - name: Set up Java/Kotlin
         uses: actions/setup-java@v6
         with:
-          distribution: liberica
+          distribution: temurin
           java-version: "25"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+        with:
+          # PRs reuse the default-branch cache without updating it.
+          cache-read-only: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
 
-      - name: Cache Tools
+      - name: Prepare consumer fixture
+        run: bash .github/scripts/prepare-consumer.sh
+
+      - name: Cache binding generator
         uses: actions/cache@v6
         with:
-          path: tools
-          key: ${{ runner.os }}-${{ runner.arch }}-tools
+          path: api/tools
+          # GitHub scopes writes by ref; the hash prevents reuse after tool configuration changes.
+          key: ${{ runner.os }}-${{ runner.arch }}-wit-bindgen-${{ hashFiles('api/build.gradle.kts') }}
 
-      - name: Build example plugin to test
+      - name: Cache consumer tools
+        id: consumer-tools
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.PUMPKIN_CI_CONSUMER }}/build/tools
+          key: ${{ runner.os }}-${{ runner.arch }}-consumer-tools-${{ hashFiles('gradle-plugin/src/main/kotlin/io/github/pumpkinmc/gradle/PumpkinPlugin.kt') }}
+
+      - name: Check and publish development packages
         run: |
-          ./gradlew build --no-daemon
+          ./gradlew :api:build :gradle-plugin:build :api:publishToMavenLocal :gradle-plugin:publishToMavenLocal \
+            -Dmaven.repo.local="$PUMPKIN_CI_REPOSITORY" --build-cache --no-daemon
+
+      - name: Build and validate consumer component
+        env:
+          CONSUMER_TOOLS_CACHE_HIT: ${{ steps.consumer-tools.outputs.cache-hit }}
+        run: |
+          args=()
+          # The installer will download again on a fresh runner otherwise
+          if [[ "$CONSUMER_TOOLS_CACHE_HIT" == "true" ]]; then
+            args+=(--exclude-task installWasmTools)
+          fi
+          ./gradlew -p "$PUMPKIN_CI_CONSUMER" build --build-cache --no-daemon "${args[@]}"
