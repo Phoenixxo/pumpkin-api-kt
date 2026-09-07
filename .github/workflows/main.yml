@@ -22,14 +22,16 @@ jobs:
     name: Build API and verify consumer
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    env:
-      PUMPKIN_CI_REPOSITORY: ${{ runner.temp }}/pumpkin-maven
-      PUMPKIN_CI_CONSUMER: ${{ runner.temp }}/pumpkin-consumer
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           submodules: true
+
+      - name: Set temporary build paths
+        run: |
+          echo "PUMPKIN_CI_REPOSITORY=$RUNNER_TEMP/pumpkin-maven" >> "$GITHUB_ENV"
+          echo "PUMPKIN_CI_CONSUMER=$RUNNER_TEMP/pumpkin-consumer" >> "$GITHUB_ENV"
 
       - name: Set up Java/Kotlin
         uses: actions/setup-java@v6
