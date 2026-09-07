@@ -62,7 +62,7 @@ jobs:
           path: ${{ env.PUMPKIN_CI_CONSUMER }}/build/tools
           key: ${{ runner.os }}-${{ runner.arch }}-consumer-tools-${{ hashFiles('gradle-plugin/src/main/kotlin/io/github/pumpkinmc/gradle/PumpkinPlugin.kt') }}
 
-      - name: Check and publish development packages
+      - name: Build and publish development packages
         run: |
           ./gradlew :api:build :gradle-plugin:build :api:publishToMavenLocal :gradle-plugin:publishToMavenLocal \
             -Dmaven.repo.local="$PUMPKIN_CI_REPOSITORY" --build-cache --no-daemon
