@@ -14,8 +14,11 @@ import org.gradle.kotlin.dsl.create
 import org.gradle.kotlin.dsl.named
 import org.gradle.kotlin.dsl.register
 import org.gradle.process.CommandLineArgumentProvider
+import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
+import org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenEnvSpec
 import org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenExec
+import org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenPlugin
 import java.net.URI
 
 abstract class PumpkinExtension @Inject constructor(objects: ObjectFactory) {
@@ -23,6 +26,7 @@ abstract class PumpkinExtension @Inject constructor(objects: ObjectFactory) {
     val apiArtifact: Property<String> = objects.property(String::class.java).convention("pumpkin-api-kt")
     val apiVersion: Property<String> = objects.property(String::class.java).convention("0.1.0-dev")
     val wasmToolsVersion: Property<String> = objects.property(String::class.java).convention("1.258.0")
+    val binaryenVersion: Property<String> = objects.property(String::class.java).convention("130")
     val pluginClass: Property<String> = objects.property(String::class.java)
 }
 
@@ -41,6 +45,7 @@ class PumpkinPlugin : Plugin<Project> {
         }
     }
 
+    @OptIn(ExperimentalWasmDsl::class)
     private fun configurePlugin(
         project: Project,
         extension: PumpkinExtension,
@@ -49,6 +54,11 @@ class PumpkinPlugin : Plugin<Project> {
         require(project.plugins.hasPlugin("org.jetbrains.kotlin.multiplatform")) {
             "io.github.pumpkin-mc.plugin requires org.jetbrains.kotlin.multiplatform."
         }
+
+        // Binaryen 130 fixes Linux release stack overflows on Kotlin-generated Wasm.
+        // https://github.com/WebAssembly/binaryen/pull/8595
+        project.plugins.apply(BinaryenPlugin::class.java)
+        project.extensions.getByType(BinaryenEnvSpec::class.java).version.set(extension.binaryenVersion)
 
         project.dependencies.add(
             apiSources.name,
