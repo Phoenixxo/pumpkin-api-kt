@@ -16,6 +16,12 @@ repositories {
     mavenCentral()
 }
 
+tasks.processResources {
+    from(rootProject.layout.projectDirectory.file("gradle/tool-versions.properties")) {
+        into("io/github/pumpkinmc/gradle")
+    }
+}
+
 dependencies {
     compileOnly("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.0")
 }

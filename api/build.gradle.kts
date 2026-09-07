@@ -1,6 +1,8 @@
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
+import java.util.Properties
+import java.util.concurrent.TimeUnit
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -40,7 +42,10 @@ val executableSuffix = if (System.getProperty("os.name").startsWith("Windows", i
 val cargoExecutable = cargoHome.map { "$it/bin/cargo$executableSuffix" }
 
 val witDirectory = rootProject.layout.projectDirectory.dir("wit/v0.1")
-val witBindgenRevision = "700f2db5e1d01f7bee8d756750c6f631171f520e"
+val toolVersions = Properties().apply {
+    load(providers.fileContents(rootProject.layout.projectDirectory.file("gradle/tool-versions.properties")).asText.get().reader())
+}
+val witBindgenRevision = toolVersions.getProperty("witBindgenRevision")
 val witBindgenDirectory = layout.projectDirectory.dir("tools/wit-bindgen/$witBindgenRevision")
 val witBindgen = witBindgenDirectory.file("bin/wit-bindgen$executableSuffix")
 val generatedBindings = layout.buildDirectory.dir("generated/wit/wasmWasiMain/kotlin")
@@ -52,10 +57,27 @@ val installWitBindgen by tasks.registering(Exec::class) {
     inputs.property("revision", witBindgenRevision)
     outputs.dir(witBindgenDirectory)
 
+    onlyIf("the pinned binding generator is not already installed") {
+        val manifest = witBindgenDirectory.file(".crates.toml").asFile
+        val matchesRevision = manifest.isFile &&
+            manifest.readText().contains("git+https://github.com/Kotlin/wit-bindgen?rev=$witBindgenRevision#$witBindgenRevision)")
+        val usable = matchesRevision && witBindgen.asFile.isFile && runCatching {
+            val process = ProcessBuilder(witBindgen.asFile.absolutePath, "--version")
+                .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start()
+            try {
+                process.waitFor(10, TimeUnit.SECONDS) && process.exitValue() == 0
+            } finally {
+                if (process.isAlive) process.destroyForcibly()
+            }
+        }.getOrDefault(false)
+        !usable
+    }
+
     commandLine(
         cargoExecutable.get(),
         "install",
         "wit-bindgen-cli",
+        "--force",
         "--git", "https://github.com/Kotlin/wit-bindgen",
         "--rev", witBindgenRevision,
         "--locked",

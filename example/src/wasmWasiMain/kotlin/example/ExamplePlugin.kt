@@ -1,4 +1,7 @@
-package plugin
+package example
+
+import plugin.PluginMetadata
+import plugin.PumpkinPlugin
 
 import pumpkin.Context
 import pumpkin.Logging
@@ -26,8 +29,4 @@ class ExamplePlugin : PumpkinPlugin() {
         Logging.log(Logging.Level.INFO, "Unload Kotlin plugin!")
         return Result.success(Unit)
     }
-}
-
-fun main() {
-    registerPlugin(ExamplePlugin())
 }

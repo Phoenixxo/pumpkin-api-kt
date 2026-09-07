@@ -126,7 +126,15 @@ git submodule update --init --recursive
 
 To test these local packages in a consumer, add `mavenLocal()` before the other repositories in both `settings.gradle.kts`'s `pluginManagement.repositories` and `build.gradle.kts`'s `repositories`. Set both version placeholders to `0.1.0-dev`. After republishing changes under that version, run `./gradlew build --refresh-dependencies` in the consumer.
 
-The repository's legacy root template still uses the earlier `main()` registration approach. Use the separate consumer setup above for the bootstrap integration.
+The [example](example/) is a standalone consumer with its own Gradle wrapper. After publishing locally, run `./example/gradlew -p example build --refresh-dependencies`, or open `example/` as a Gradle project in IntelliJ. The output is `example/build/pumpkin-example.wasm`.
+
+The root build checks `api` and `gradle-plugin` automatically. 
+
+Build tool pins live in `gradle/tool-versions.properties`. 
+
+Gradle checks restored executables before reusing them. 
+- Binding generation tracks the WIT directory, generator executable, and generation options as task inputs.
+- Binaryen and Gradle dependencies remain managed by the Gradle setup action.
 
 ### Updating the WIT
 

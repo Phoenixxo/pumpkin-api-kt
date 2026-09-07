@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   main:
-    name: Build API and verify consumer
+    name: Build, test, and release
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -31,7 +31,13 @@ jobs:
       - name: Set temporary build paths
         run: |
           echo "PUMPKIN_CI_REPOSITORY=$RUNNER_TEMP/pumpkin-maven" >> "$GITHUB_ENV"
-          echo "PUMPKIN_CI_CONSUMER=$RUNNER_TEMP/pumpkin-consumer" >> "$GITHUB_ENV"
+
+      - name: Read pinned tool versions
+        id: tools
+        run: |
+          while IFS='=' read -r name version; do
+            echo "$name=$version" >> "$GITHUB_OUTPUT"
+          done < gradle/tool-versions.properties
 
       - name: Set up Java/Kotlin
         uses: actions/setup-java@v6
@@ -45,35 +51,22 @@ jobs:
           # PRs reuse the default-branch cache without updating it.
           cache-read-only: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
 
-      - name: Prepare consumer fixture
-        run: bash .github/scripts/prepare-consumer.sh
-
       - name: Cache binding generator
         uses: actions/cache@v6
         with:
-          path: api/tools
-          # GitHub scopes writes by ref; the hash prevents reuse after tool configuration changes.
-          key: ${{ runner.os }}-${{ runner.arch }}-wit-bindgen-${{ hashFiles('api/build.gradle.kts') }}
+          path: api/tools/wit-bindgen/${{ steps.tools.outputs.witBindgenRevision }}
+          key: ${{ runner.os }}-${{ runner.arch }}-wit-bindgen-${{ steps.tools.outputs.witBindgenRevision }}
 
       - name: Cache consumer tools
-        id: consumer-tools
         uses: actions/cache@v6
         with:
-          path: ${{ env.PUMPKIN_CI_CONSUMER }}/build/tools
-          key: ${{ runner.os }}-${{ runner.arch }}-consumer-tools-${{ hashFiles('gradle-plugin/src/main/kotlin/io/github/pumpkinmc/gradle/PumpkinPlugin.kt') }}
+          path: example/build/tools/wasm-tools/${{ steps.tools.outputs.wasmToolsVersion }}
+          key: ${{ runner.os }}-${{ runner.arch }}-wasm-tools-${{ steps.tools.outputs.wasmToolsVersion }}
 
       - name: Build and publish development packages
         run: |
           ./gradlew :api:build :gradle-plugin:build :api:publishToMavenLocal :gradle-plugin:publishToMavenLocal \
             -Dmaven.repo.local="$PUMPKIN_CI_REPOSITORY" --build-cache --no-daemon
 
-      - name: Build and validate consumer component
-        env:
-          CONSUMER_TOOLS_CACHE_HIT: ${{ steps.consumer-tools.outputs.cache-hit }}
-        run: |
-          args=()
-          # The installer will download again on a fresh runner otherwise
-          if [[ "$CONSUMER_TOOLS_CACHE_HIT" == "true" ]]; then
-            args+=(--exclude-task installWasmTools)
-          fi
-          ./gradlew -p "$PUMPKIN_CI_CONSUMER" build --build-cache --no-daemon "${args[@]}"
+      - name: Build and validate example component
+        run: ./example/gradlew -p example build --build-cache --no-daemon

@@ -20,13 +20,24 @@ import org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenEnvSpec
 import org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenExec
 import org.jetbrains.kotlin.gradle.targets.wasm.binaryen.BinaryenPlugin
 import java.net.URI
+import java.io.File
+import java.util.Properties
+import java.util.concurrent.TimeUnit
+
+private val toolVersions: Properties by lazy {
+    Properties().apply {
+        checkNotNull(PumpkinPlugin::class.java.getResourceAsStream("tool-versions.properties")) {
+            "Packaged tool versions are missing."
+        }.use { load(it) }
+    }
+}
 
 abstract class PumpkinExtension @Inject constructor(objects: ObjectFactory) {
     val apiGroup: Property<String> = objects.property(String::class.java).convention("io.github.pumpkin-mc")
     val apiArtifact: Property<String> = objects.property(String::class.java).convention("pumpkin-api-kt")
     val apiVersion: Property<String> = objects.property(String::class.java).convention("0.1.0-dev")
-    val wasmToolsVersion: Property<String> = objects.property(String::class.java).convention("1.258.0")
-    val binaryenVersion: Property<String> = objects.property(String::class.java).convention("130")
+    val wasmToolsVersion: Property<String> = objects.property(String::class.java).convention(toolVersions.getProperty("wasmToolsVersion"))
+    val binaryenVersion: Property<String> = objects.property(String::class.java).convention(toolVersions.getProperty("binaryenVersion"))
     val pluginClass: Property<String> = objects.property(String::class.java)
 }
 
@@ -138,6 +149,10 @@ class PumpkinPlugin : Plugin<Project> {
             inputs.property("url", wasmToolsUrl)
             outputs.file(wasmTools)
 
+            onlyIf("the requested wasm-tools version is not already installed") {
+                !installedWasmToolsMatches(wasmTools.get().asFile, extension.wasmToolsVersion.get())
+            }
+
             doLast {
                 val installationDirectory = wasmToolsDirectory.get().asFile
                 val archive = temporaryDir.resolve("wasm-tools.$wasmToolsArchiveExtension")
@@ -174,6 +189,9 @@ class PumpkinPlugin : Plugin<Project> {
                     downloadedExecutable.copyTo(installedExecutable, overwrite = true)
                 }
                 installedExecutable.setExecutable(true)
+                check(installedWasmToolsMatches(installedExecutable, extension.wasmToolsVersion.get())) {
+                    "The downloaded wasm-tools executable does not report the requested version."
+                }
             }
         }
 
@@ -229,6 +247,20 @@ class PumpkinPlugin : Plugin<Project> {
 
         project.tasks.named("assemble") { dependsOn(assemblePluginRelease) }
         project.tasks.named("check") { dependsOn(validatePluginRelease) }
+    }
+
+    private fun installedWasmToolsMatches(executable: File, version: String): Boolean {
+        if (!executable.isFile) return false
+        return runCatching {
+            val process = ProcessBuilder(executable.absolutePath, "--version").redirectErrorStream(true).start()
+            try {
+                process.waitFor(10, TimeUnit.SECONDS) && process.exitValue() == 0 &&
+                    Regex("^wasm-tools ${Regex.escape(version)}(?:\\s|$)")
+                        .containsMatchIn(process.inputStream.bufferedReader().use { it.readText() })
+            } finally {
+                if (process.isAlive) process.destroyForcibly()
+            }
+        }.getOrDefault(false)
     }
 
     private fun componentEmbedArguments(
