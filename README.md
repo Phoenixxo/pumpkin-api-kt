@@ -54,10 +54,10 @@ pumpkin {
 ```
 
 > [!important]
-> Put your implementation in `src/wasmWasiMain/kotlin/example/MyPlugin.kt`. The `wasmWasiMain` source set is required; `src/main/kotlin` is not the source directory for this target.
+> Put your implementation in `src/wasmWasiMain/kotlin/my_plugin/MyPlugin.kt`. The `wasmWasiMain` source set is required; `src/main/kotlin` is not the source directory for this target.
 
 ```kotlin
-package example
+package my_plugin
 
 import plugin.PluginMetadata
 import plugin.PumpkinPlugin
