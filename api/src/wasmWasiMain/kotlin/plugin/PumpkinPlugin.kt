@@ -69,24 +69,20 @@ abstract class PumpkinPlugin {
 
 typealias PluginMetadata = Metadata.PluginMetadata
 
-private var registeredPlugin: PumpkinPlugin? = null
+private var pluginInstance: PumpkinPlugin? = null
 
-/** Registers the plugin instance exported by this WebAssembly component. */
-fun registerPlugin(plugin: PumpkinPlugin) {
-    check(registeredPlugin == null) { "A Pumpkin plugin has already been registered." }
-    registeredPlugin = plugin
-}
-
-private fun requirePlugin(): PumpkinPlugin = registeredPlugin ?: createPlugin().also {
-    registeredPlugin = it
+private fun requirePlugin(): PumpkinPlugin = pluginInstance ?: createPlugin().also {
+    pluginInstance = it
 }
 
 private fun <T> unsupportedCallback(name: String): T =
     error("PumpkinPlugin.$name has not been implemented.")
 
 /**
- * WIT export bridge used by the generated bindings. Plugin authors use [PumpkinPlugin] and
- * [registerPlugin] instead of implementing this generated interface directly.
+ * WIT export bridge used by the generated bindings. Plugin authors extend [PumpkinPlugin]
+ * and configure pumpkin.pluginClass.
+ * 
+ * The generated bootstrap supplies the instance automatically.
  */
 internal class PluginRootFunctionsExportsImpl {
     companion object : PluginRootFunctions.Exports {

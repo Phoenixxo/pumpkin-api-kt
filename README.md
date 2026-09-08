@@ -107,7 +107,7 @@ package plugin
 internal fun createPlugin(): PumpkinPlugin = example.MyPlugin()
 ```
 
-This replaces the API's placeholder factory during consumer compilation. On the first exported callback, the API bridge constructs and caches your plugin instance. Later callbacks use the same instance. There is no need for `main()`, a top-level registration initializer, or a call to `registerPlugin(...)`. The package also supplies the generator-specific `PluginRootFunctionsExportsImpl` and `MetadataImpl` bridges.
+This replaces the API's placeholder factory during consumer compilation. On the first exported callback, the API bridge constructs and caches your plugin instance. Later callbacks use the same instance. The package supplies the generator-specific `PluginRootFunctionsExportsImpl` and `MetadataImpl` bridges.
 
 ## Server compatibility
 
