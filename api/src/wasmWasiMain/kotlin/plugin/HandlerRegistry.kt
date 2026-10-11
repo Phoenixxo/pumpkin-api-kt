@@ -3,7 +3,7 @@ package plugin
 /** Stores callbacks under IDs that Pumpkin can pass back to this plugin. */
 internal class HandlerRegistry<T> {
     private val handlers = mutableMapOf<UInt, T>()
-    // Kotlin helpers use the upper half of the ID space; manual handlers must use the lower half.
+    // Kotlin helpers use the upper half of the ID space. Manual handlers must use the lower half.
     private val firstId = 0x8000_0000u
     private var nextId = firstId
 

@@ -50,7 +50,7 @@ class PluginTasks internal constructor(
             }
         }
 
-        // Pumpkin's task ID is for cancellation; our handler ID is for callback dispatch.
+        // Pumpkin's task ID is for cancellation. Our handler ID is for callback dispatch.
         val taskId = try {
             Scheduler.scheduleDelayedTask(handlerId, delayTicks)
         } catch (failure: Throwable) {

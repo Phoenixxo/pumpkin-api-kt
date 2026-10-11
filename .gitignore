@@ -34,3 +34,7 @@
 ### wit-bindgen-generated bindings ###
 src/wasmWasiMain/kotlin/bindings/
 /tools/
+
+/tests/**/build/
+
+/tests/**/.gradle/
