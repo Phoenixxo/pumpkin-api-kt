@@ -1,7 +1,7 @@
 package plugin
 
 /**
- * Handle for a task scheduled through [PluginTasks].
+ * This handle represents a task scheduled through [PluginTasks].
  *
  * A handle remains safe to use after the task has completed or has already
  * been cancelled.
